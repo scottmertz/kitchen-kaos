@@ -1,0 +1,6 @@
+// The core module's ONLY dependency is libGDX itself. No platform-specific
+// (LWJGL, Android, etc.) code or dependencies belong in here — that's the
+// whole point of splitting it out.
+dependencies {
+    api "com.badlogicgames.gdx:gdx:$gdxVersion"
+}

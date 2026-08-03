@@ -1,0 +1,7 @@
+// Tells Gradle this is a multi-module build, and names the two modules.
+// "core" = platform-independent game logic
+// "lwjgl3" = the desktop (Windows/Mac/Linux) launcher module
+rootProject.name = 'kitchen-kaos'
+
+include ':core'
+include ':lwjgl3'

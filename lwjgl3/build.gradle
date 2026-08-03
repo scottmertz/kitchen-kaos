@@ -1,0 +1,25 @@
+plugins {
+    id 'application'
+}
+
+// Assets (images, sounds, etc.) live in a top-level /assets folder,
+// shared across modules rather than duplicated per-platform.
+sourceSets.main.resources.srcDirs += [ "../assets" ]
+
+// Modern syntax: set mainClass directly inside the application block,
+// instead of the old top-level "mainClassName" property (removed in
+// recent Gradle versions).
+application {
+    mainClass = 'com.kitchenkaos.game.lwjgl3.Lwjgl3Launcher'
+}
+
+dependencies {
+    implementation project(':core')
+    api "com.badlogicgames.gdx:gdx-backend-lwjgl3:$lwjgl3Version"
+    api "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+}
+
+run {
+    workingDir = rootProject.file('assets').path
+    standardInput = System.in
+}

@@ -1,0 +1,14 @@
+# COPY this file to application.properties and fill in real values.
+# application.properties is gitignored — it will never be committed.
+#
+# This file (the .example version) is the only one that should ever
+# be checked into git. Keep it updated as new config keys get added.
+
+# --- Backend (Part 3 — not used yet in Part 1) ---
+db.url=jdbc:postgresql://localhost:5432/kitchenkaos
+db.username=changeme
+db.password=changeme
+
+# --- Online leaderboard API (Part 3) ---
+leaderboard.api.baseUrl=https://api.example.com
+leaderboard.api.key=changeme

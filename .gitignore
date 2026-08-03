@@ -1,0 +1,37 @@
+# ---- Gradle ----
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+
+# ---- IntelliJ ----
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ---- OS junk ----
+.DS_Store
+Thumbs.db
+
+# ---- Logs ----
+*.log
+
+# ---- Local run/desktop artifacts ----
+desktop-1.0/
+
+# =========================================================
+# SECRETS — nothing matching these patterns is ever tracked
+# =========================================================
+# Real config with actual credentials (DB passwords, API keys,
+# leaderboard server URLs, etc.) — added later in Part 3.
+config/application.properties
+config/application-secrets.yml
+*.env
+.env.*
+!*.env.example
+
+# Any personal local override file
+*.local.properties
+local.properties

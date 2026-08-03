@@ -1,0 +1,24 @@
+// This is the SHARED config that applies to every module (core, lwjgl3,
+// and whatever gets added later). Module-specific stuff (dependencies)
+// lives in each module's own build.gradle instead.
+
+allprojects {
+    version = '0.1.0-part1'
+}
+
+configure(subprojects) {
+    apply plugin: 'java-library'
+
+    // Java 17 — matches the JDK you installed in Step 1.
+    compileJava {
+        sourceCompatibility = 17
+        targetCompatibility = 17
+    }
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        // libGDX publishes some artifacts here in addition to Maven Central.
+        maven { url 'https://s01.oss.sonatype.org' }
+    }
+}
