@@ -10,12 +10,18 @@ import java.util.List;
  */
 public class PosMenu {
 
-    private final List<PosMenuItem> items;
+    private List<PosMenuItem> items;
     private int selectedIndex = 0;
     private boolean open = false;
 
     public PosMenu(List<PosMenuItem> items) {
         this.items = items;
+    }
+
+    /** Replaces the item list — used by menus whose contents change each time they're opened (e.g. a station's waiting-ticket list). */
+    public void setItems(List<PosMenuItem> items) {
+        this.items = items;
+        selectedIndex = 0;
     }
 
     public void open() {

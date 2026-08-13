@@ -50,6 +50,7 @@ public class ShiftScreen implements Screen {
     private final java.util.List<com.kitchenkaos.game.world.Interactable> interactables = new ArrayList<>();
     private com.kitchenkaos.game.world.WorldPOS pos;
     private final java.util.List<com.badlogic.gdx.math.Rectangle> solidBounds = new ArrayList<>();
+    private com.kitchenkaos.game.world.WorldStation openStationMenu = null;
 
     private String toastMessage = null;
     private float toastTimer = 0f;
@@ -62,9 +63,7 @@ public class ShiftScreen implements Screen {
 
     private final com.kitchenkaos.game.sim.ShiftStateMachine shiftState = new com.kitchenkaos.game.sim.ShiftStateMachine();
 
-    private void handlePosMenuInput() {
-        com.kitchenkaos.game.pos.PosMenu menu = pos.getMenu();
-
+    private void handleGenericMenuInput(com.kitchenkaos.game.pos.PosMenu menu) {
         if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.UP)) {
             menu.moveSelection(-1);
         }
@@ -75,11 +74,6 @@ public class ShiftScreen implements Screen {
             menu.selectCurrent();
         }
 
-        // Mouse: libGDX reports mouse Y with origin at the TOP of the window,
-        // but our screen-space drawing (font.draw etc.) uses origin at the
-        // BOTTOM, Y increasing upward — same convention ShapeRenderer/batch
-        // already use elsewhere in this class. Flip Y so mouse and drawn
-        // positions agree.
         float mouseX = Gdx.input.getX();
         float mouseY = Gdx.graphics.getHeight() - Gdx.input.getY();
 
@@ -112,12 +106,6 @@ public class ShiftScreen implements Screen {
         return bounds;
     }
 
-    // Tracks which ticket/dish each BUSY station is currently working on,
-    // so that when Station.update() reports "done", we know which Ticket
-    // to mark complete. Keyed by StationType since each station can only
-    // work one thing at a time.
-    private final Map<StationType, Assignment> currentAssignments = new EnumMap<>(StationType.class);
-
     // Tickets we've already fired a LONG_WAIT problem for, so we don't
     // spam a new ProblemEvent every single frame a ticket stays overdue.
     private final List<Ticket> alreadyFlaggedForLongWait = new ArrayList<>();
@@ -126,16 +114,6 @@ public class ShiftScreen implements Screen {
 
     private SpriteBatch batch;
     private BitmapFont font;
-
-    /** Pairs a Ticket with which dish-index on it is currently being cooked. */
-    private static class Assignment {
-        final Ticket ticket;
-        final int dishIndex;
-        Assignment(Ticket ticket, int dishIndex) {
-            this.ticket = ticket;
-            this.dishIndex = dishIndex;
-        }
-    }
 
     @Override
     public void show() {
@@ -204,11 +182,20 @@ public class ShiftScreen implements Screen {
 
     private void update(float delta) {
         if (pos.getMenu().isOpen()) {
-            handlePosMenuInput();
+            handleGenericMenuInput(pos.getMenu());
+        } else if (openStationMenu != null) {
+            handleGenericMenuInput(openStationMenu.getMenu());
+            if (!openStationMenu.getMenu().isOpen()) {
+                openStationMenu = null; // menu closed itself (Exit was selected)
+            }
         } else {
             if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.SPACE)) {
                 com.kitchenkaos.game.world.Interactable target = findInteractableInRange();
-                if (target != null) {
+                if (target instanceof com.kitchenkaos.game.world.WorldStation ws) {
+                    ws.refreshMenu(activeTickets, flow);
+                    ws.getMenu().open();
+                    openStationMenu = ws;
+                } else if (target != null) {
                     target.interact();
                 }
             }
@@ -229,9 +216,6 @@ public class ShiftScreen implements Screen {
                 activeTickets.add(newTicket);
             }
         }
-
-        // 2. Free stations pick up waiting dishes (autopilot — see class comment).
-        assignWaitingDishesToFreeStations();
 
         // 3. Advance every busy station; handle completions.
         for (Station station : stations.values()) {
@@ -324,41 +308,16 @@ public class ShiftScreen implements Screen {
         camera.position.set(camX, camY, 0);
         camera.update();
     }
-    private void assignWaitingDishesToFreeStations() {
-        for (Ticket ticket : activeTickets) {
-            Dish[] dishes = ticket.getDishes();
-            for (int i = 0; i < dishes.length; i++) {
-                Dish dish = dishes[i];
-                StationType neededType = dish.getPrimaryStation();
-                Station station = stations.get(neededType);
-
-                boolean alreadyAssigned = isAlreadyAssigned(ticket, i);
-                boolean alreadyDone = ticket.isDishComplete(i);
-                if (!station.isBusy() && !alreadyAssigned && !alreadyDone) {
-                    station.startTask(dish.getBaseCookSeconds(), flow);
-                    currentAssignments.put(neededType, new Assignment(ticket, i));
-                    // Autopilot always counts as "good timing" for now —
-                    // this is exactly the kind of call that becomes real
-                    // player skill once input exists.
-                    flow.onGoodTiming();
-                }
-            }
-        }
-    }
-
-    private boolean isAlreadyAssigned(Ticket ticket, int dishIndex) {
-        for (Assignment assignment : currentAssignments.values()) {
-            if (assignment.ticket == ticket && assignment.dishIndex == dishIndex) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private void onStationFinished(Station station) {
-        Assignment assignment = currentAssignments.remove(station.getType());
-        if (assignment != null) {
-            assignment.ticket.markDishComplete(assignment.dishIndex);
+        for (Ticket ticket : activeTickets) {
+            var dishes = ticket.getDishes();
+            for (int i = 0; i < dishes.length; i++) {
+                if (!ticket.isDishComplete(i) && dishes[i].getPrimaryStation() == station.getType()) {
+                    ticket.markDishComplete(i);
+                    return; // only one dish could have JUST finished at this station
+                }
+            }
         }
     }
 
@@ -403,7 +362,7 @@ public class ShiftScreen implements Screen {
         y -= 25;
         font.draw(batch, "Problems logged: " + problemLog.size(), 20, y);
         y -= 35;
-        if (!pos.getMenu().isOpen()) {
+        if (!pos.getMenu().isOpen() && openStationMenu == null) {
             com.kitchenkaos.game.world.Interactable nearby = findInteractableInRange();
             if (nearby != null) {
                 font.draw(batch, "Press SPACE to interact: " + nearby.getLabel(), 20, y);
@@ -411,14 +370,19 @@ public class ShiftScreen implements Screen {
             }
         }
 
+        com.kitchenkaos.game.pos.PosMenu activeMenu = null;
         if (pos.getMenu().isOpen()) {
-            com.kitchenkaos.game.pos.PosMenu menu = pos.getMenu();
-            java.util.List<com.badlogic.gdx.math.Rectangle> itemBounds = computePosMenuItemBounds(menu);
-            for (int i = 0; i < menu.getItems().size(); i++) {
-                com.kitchenkaos.game.pos.PosMenuItem item = menu.getItems().get(i);
+            activeMenu = pos.getMenu();
+        } else if (openStationMenu != null) {
+            activeMenu = openStationMenu.getMenu();
+        }
+        if (activeMenu != null) {
+            java.util.List<com.badlogic.gdx.math.Rectangle> itemBounds = computePosMenuItemBounds(activeMenu);
+            for (int i = 0; i < activeMenu.getItems().size(); i++) {
+                com.kitchenkaos.game.pos.PosMenuItem item = activeMenu.getItems().get(i);
                 com.badlogic.gdx.math.Rectangle b = itemBounds.get(i);
 
-                String prefix = (i == menu.getSelectedIndex()) ? "> " : "  ";
+                String prefix = (i == activeMenu.getSelectedIndex()) ? "> " : "  ";
                 String suffix = item.isEnabled() ? "" : " (disabled)";
                 font.draw(batch, prefix + item.getLabel() + suffix, b.x, b.y + b.height - 6);
             }
