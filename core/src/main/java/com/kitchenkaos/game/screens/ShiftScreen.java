@@ -43,12 +43,74 @@ public class ShiftScreen implements Screen {
     private final List<ProblemEvent> problemLog = new ArrayList<>();
 
     private com.badlogic.gdx.graphics.OrthographicCamera camera;
+    private com.badlogic.gdx.graphics.OrthographicCamera uiCamera;
     private com.kitchenkaos.game.world.Player player;
     private com.badlogic.gdx.graphics.glutils.ShapeRenderer shapeRenderer;
     private final java.util.List<com.kitchenkaos.game.world.WorldStation> worldStations = new ArrayList<>();
+    private final java.util.List<com.kitchenkaos.game.world.Interactable> interactables = new ArrayList<>();
+    private com.kitchenkaos.game.world.WorldPOS pos;
     private final java.util.List<com.badlogic.gdx.math.Rectangle> solidBounds = new ArrayList<>();
 
+    private String toastMessage = null;
+    private float toastTimer = 0f;
+    private static final float TOAST_DURATION_SECONDS = 2.5f;
+
+    private void showToast(String message) {
+        toastMessage = message;
+        toastTimer = TOAST_DURATION_SECONDS;
+    }
+
     private final com.kitchenkaos.game.sim.ShiftStateMachine shiftState = new com.kitchenkaos.game.sim.ShiftStateMachine();
+
+    private void handlePosMenuInput() {
+        com.kitchenkaos.game.pos.PosMenu menu = pos.getMenu();
+
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.UP)) {
+            menu.moveSelection(-1);
+        }
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.DOWN)) {
+            menu.moveSelection(1);
+        }
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.SPACE)) {
+            menu.selectCurrent();
+        }
+
+        // Mouse: libGDX reports mouse Y with origin at the TOP of the window,
+        // but our screen-space drawing (font.draw etc.) uses origin at the
+        // BOTTOM, Y increasing upward — same convention ShapeRenderer/batch
+        // already use elsewhere in this class. Flip Y so mouse and drawn
+        // positions agree.
+        float mouseX = Gdx.input.getX();
+        float mouseY = Gdx.graphics.getHeight() - Gdx.input.getY();
+
+        java.util.List<com.badlogic.gdx.math.Rectangle> itemBounds = computePosMenuItemBounds(menu);
+        for (int i = 0; i < itemBounds.size(); i++) {
+            if (itemBounds.get(i).contains(mouseX, mouseY)) {
+                menu.setSelectedIndex(i);
+                if (Gdx.input.justTouched()) {
+                    menu.selectCurrent();
+                }
+                break;
+            }
+        }
+    }
+
+    /**
+     * Computes each menu item's on-screen rectangle, used for BOTH drawing
+     * the menu and mouse hit-testing — keeping one shared layout formula
+     * means the visible menu and the clickable area can never drift apart.
+     */
+    private java.util.List<com.badlogic.gdx.math.Rectangle> computePosMenuItemBounds(com.kitchenkaos.game.pos.PosMenu menu) {
+        java.util.List<com.badlogic.gdx.math.Rectangle> bounds = new ArrayList<>();
+        float startX = 440f;
+        float startY = 500f;
+        float itemHeight = 32f;
+
+        for (int i = 0; i < menu.getItems().size(); i++) {
+            bounds.add(new com.badlogic.gdx.math.Rectangle(startX, startY - (i * itemHeight), 320f, itemHeight - 4f));
+        }
+        return bounds;
+    }
 
     // Tracks which ticket/dish each BUSY station is currently working on,
     // so that when Station.update() reports "done", we know which Ticket
@@ -97,8 +159,34 @@ public class ShiftScreen implements Screen {
             x += spacing;
         }
 
+        interactables.addAll(worldStations);
+
+        java.util.List<com.kitchenkaos.game.pos.PosMenuItem> posItems = new ArrayList<>();
+        posItems.add(new com.kitchenkaos.game.pos.PosMenuItem("Clock In", true, () -> {
+            shiftState.clockIn();
+            showToast("Clocked In");
+        }));
+        posItems.add(new com.kitchenkaos.game.pos.PosMenuItem("Clock Out", true, () -> {
+            shiftState.clockOut();
+            showToast("Clocked Out");
+        }));
+        posItems.add(new com.kitchenkaos.game.pos.PosMenuItem("Orders (coming soon)", false, null));
+        posItems.add(new com.kitchenkaos.game.pos.PosMenuItem("Financials (coming soon)", false, null));
+        posItems.add(new com.kitchenkaos.game.pos.PosMenuItem("Save (coming soon)", false, null));
+        posItems.add(new com.kitchenkaos.game.pos.PosMenuItem("Quit (coming soon)", false, null));
+
+        com.kitchenkaos.game.pos.PosMenu posMenu = new com.kitchenkaos.game.pos.PosMenu(posItems);
+        posItems.add(new com.kitchenkaos.game.pos.PosMenuItem("Exit", true, posMenu::close));
+
+        pos = new com.kitchenkaos.game.world.WorldPOS(posMenu, 900f, 500f, 90f, 90f);
+        interactables.add(pos);
+        solidBounds.add(pos.getBounds());
+
         camera = new com.badlogic.gdx.graphics.OrthographicCamera();
         camera.setToOrtho(false, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
+
+        uiCamera = new com.badlogic.gdx.graphics.OrthographicCamera();
+        uiCamera.setToOrtho(false, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
 
         player = new com.kitchenkaos.game.world.Player(
                 com.kitchenkaos.game.world.RestaurantWorld.WIDTH / 2f,
@@ -115,30 +203,24 @@ public class ShiftScreen implements Screen {
     }
 
     private void update(float delta) {
-        // TEMPORARY: real clock-in is the POS (Step 4). Until that exists,
-        // press C to clock in and X to clock out, just to unblock testing
-        // everything downstream of ShiftState.
-        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.C)) {
-            shiftState.clockIn();
+        if (pos.getMenu().isOpen()) {
+            handlePosMenuInput();
+        } else {
+            if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.SPACE)) {
+                com.kitchenkaos.game.world.Interactable target = findInteractableInRange();
+                if (target != null) {
+                    target.interact();
+                }
+            }
+            player.update(delta, solidBounds);
         }
-        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.X)) {
-            shiftState.clockOut();
-        }
+
+        updateCamera();
 
         if (shiftState.isClockedIn()) {
             clock.update(delta);
             shiftState.update(clock.getPhase());
         }
-
-        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.SPACE)) {
-            com.kitchenkaos.game.world.WorldStation target = findInteractableInRange();
-            if (target != null) {
-                target.interact();
-            }
-        }
-
-        player.update(delta, solidBounds);
-        updateCamera();
 
         // 1. Spawn new tickets, queue their dishes for assignment.
         if (shiftState.isOpenForCustomers()) {
@@ -175,6 +257,13 @@ public class ShiftScreen implements Screen {
             }
         }
 
+        if (toastTimer > 0f) {
+            toastTimer -= delta;
+            if (toastTimer <= 0f) {
+                toastMessage = null;
+            }
+        }
+
         // TODO(player-input): BURNED_FOOD should fire here when a station
         // finishes a task but the PLAYER fails to collect/pull it within
         // some grace window — not automatically, like everything above.
@@ -196,11 +285,11 @@ public class ShiftScreen implements Screen {
      * interaction feel forgiving rather than finicky). Returns null if
      * nothing qualifies.
      */
-    private com.kitchenkaos.game.world.WorldStation findInteractableInRange() {
+    private com.kitchenkaos.game.world.Interactable findInteractableInRange() {
         Vector2 facingVec = new Vector2(player.getFacing().dx, player.getFacing().dy);
 
-        for (com.kitchenkaos.game.world.WorldStation ws : worldStations) {
-            com.badlogic.gdx.math.Rectangle b = ws.getBounds();
+        for (com.kitchenkaos.game.world.Interactable obj : interactables) {
+            com.badlogic.gdx.math.Rectangle b = obj.getBounds();
             Vector2 center = new Vector2(b.x + b.width / 2f, b.y + b.height / 2f);
 
             Vector2 toTarget = center.cpy().sub(player.getPosition());
@@ -212,7 +301,7 @@ public class ShiftScreen implements Screen {
             toTarget.nor();
             float dot = toTarget.dot(facingVec);
             if (dot >= GameConstants.FACING_DOT_THRESHOLD) {
-                return ws;
+                return obj;
             }
         }
         return null;
@@ -290,10 +379,19 @@ public class ShiftScreen implements Screen {
         shapeRenderer.setColor(1f, 0.6f, 0.2f, 1f); // orange = player
         shapeRenderer.rect(player.getPosition().x - 16, player.getPosition().y - 16, 32, 32);
 
+        shapeRenderer.setColor(0.7f, 0.7f, 0.2f, 1f); // yellow = POS terminal
+        com.badlogic.gdx.math.Rectangle posBounds = pos.getBounds();
+        shapeRenderer.rect(posBounds.x, posBounds.y, posBounds.width, posBounds.height);
+
         shapeRenderer.end();
+
+        batch.setProjectionMatrix(uiCamera.combined);
 
         batch.begin();
         int y = 700;
+        if (toastMessage != null) {
+            font.draw(batch, ">>> " + toastMessage + " <<<", 520, 690);
+        }
         font.draw(batch, "Shift state: " + shiftState.getState(), 20, y);
         y -= 25;
         font.draw(batch, String.format("Time: %02d:%02d (%s)",
@@ -305,10 +403,25 @@ public class ShiftScreen implements Screen {
         y -= 25;
         font.draw(batch, "Problems logged: " + problemLog.size(), 20, y);
         y -= 35;
-        com.kitchenkaos.game.world.WorldStation nearby = findInteractableInRange();
-        if (nearby != null) {
-            font.draw(batch, "Press SPACE to interact: " + nearby.getLabel(), 20, y);
-            y -= 25;
+        if (!pos.getMenu().isOpen()) {
+            com.kitchenkaos.game.world.Interactable nearby = findInteractableInRange();
+            if (nearby != null) {
+                font.draw(batch, "Press SPACE to interact: " + nearby.getLabel(), 20, y);
+                y -= 25;
+            }
+        }
+
+        if (pos.getMenu().isOpen()) {
+            com.kitchenkaos.game.pos.PosMenu menu = pos.getMenu();
+            java.util.List<com.badlogic.gdx.math.Rectangle> itemBounds = computePosMenuItemBounds(menu);
+            for (int i = 0; i < menu.getItems().size(); i++) {
+                com.kitchenkaos.game.pos.PosMenuItem item = menu.getItems().get(i);
+                com.badlogic.gdx.math.Rectangle b = itemBounds.get(i);
+
+                String prefix = (i == menu.getSelectedIndex()) ? "> " : "  ";
+                String suffix = item.isEnabled() ? "" : " (disabled)";
+                font.draw(batch, prefix + item.getLabel() + suffix, b.x, b.y + b.height - 6);
+            }
         }
 
         for (StationType type : StationType.values()) {

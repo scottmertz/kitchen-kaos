@@ -36,9 +36,14 @@ public class ShiftStateMachine {
         }
     }
 
-    /** Real trigger is the POS (Step 4). Stops the clock ticking. */
+    /**
+     * Real trigger is the POS. Loosened from an earlier CLOSING-only
+     * restriction — the full early/late clock-out consequence system
+     * (pay/Fatigue/Owner Happiness tradeoffs) is a deferred, dedicated
+     * feature; until it exists, the ACTION itself shouldn't be blocked.
+     */
     public void clockOut() {
-        if (state == ShiftState.CLOSING) {
+        if (isClockedIn()) {
             state = ShiftState.CLOCKED_OUT;
         }
     }
