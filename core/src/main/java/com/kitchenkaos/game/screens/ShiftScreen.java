@@ -44,6 +44,8 @@ public class ShiftScreen implements Screen {
     private com.kitchenkaos.game.world.Player player;
     private com.badlogic.gdx.graphics.glutils.ShapeRenderer shapeRenderer;
 
+    private final com.kitchenkaos.game.sim.ShiftStateMachine shiftState = new com.kitchenkaos.game.sim.ShiftStateMachine();
+
     // Tracks which ticket/dish each BUSY station is currently working on,
     // so that when Station.update() reports "done", we know which Ticket
     // to mark complete. Keyed by StationType since each station can only
@@ -96,15 +98,30 @@ public class ShiftScreen implements Screen {
     }
 
     private void update(float delta) {
-        clock.update(delta);
+        // TEMPORARY: real clock-in is the POS (Step 4). Until that exists,
+        // press C to clock in and X to clock out, just to unblock testing
+        // everything downstream of ShiftState.
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.C)) {
+            shiftState.clockIn();
+        }
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.X)) {
+            shiftState.clockOut();
+        }
+
+        if (shiftState.isClockedIn()) {
+            clock.update(delta);
+            shiftState.update(clock.getPhase());
+        }
 
         player.update(delta);
         updateCamera();
 
         // 1. Spawn new tickets, queue their dishes for assignment.
-        Ticket newTicket = ticketSpawner.update(delta, clock.getHoursSinceStart(), clock.getPhase());
-        if (newTicket != null) {
-            activeTickets.add(newTicket);
+        if (shiftState.isOpenForCustomers()) {
+            Ticket newTicket = ticketSpawner.update(delta, clock.getHoursSinceStart(), clock.getPhase());
+            if (newTicket != null) {
+                activeTickets.add(newTicket);
+            }
         }
 
         // 2. Free stations pick up waiting dishes (autopilot — see class comment).
@@ -217,7 +234,10 @@ public class ShiftScreen implements Screen {
 
         batch.begin();
         int y = 700;
-        font.draw(batch, String.format("Hour: %02d:00 (%s)", clock.getDisplayHour24(), clock.getPhase().label), 20, y);
+        font.draw(batch, "Shift state: " + shiftState.getState(), 20, y);
+        y -= 25;
+        font.draw(batch, String.format("Time: %02d:%02d (%s)",
+                clock.getDisplayHour24(), clock.getDisplayMinute(), clock.getPhase().label), 20, y);
         y -= 25;
         font.draw(batch, String.format("Flow: %.0f", flow.getFlow()), 20, y);
         y -= 25;

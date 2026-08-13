@@ -41,6 +41,11 @@ public class TimeCompressionClock {
         return hour % 24;
     }
 
+    /** In-game minute-of-the-hour (0-59), for a full HH:MM display. */
+    public int getDisplayMinute() {
+        return (int) (getHoursSinceStart() * 60f) % 60;
+    }
+
     public ShiftPhase getPhase() {
         return ShiftPhase.forHour(getHoursSinceStart());
     }
