@@ -40,6 +40,10 @@ public class ShiftScreen implements Screen {
     private final List<Ticket> activeTickets = new ArrayList<>();
     private final List<ProblemEvent> problemLog = new ArrayList<>();
 
+    private com.badlogic.gdx.graphics.OrthographicCamera camera;
+    private com.kitchenkaos.game.world.Player player;
+    private com.badlogic.gdx.graphics.glutils.ShapeRenderer shapeRenderer;
+
     // Tracks which ticket/dish each BUSY station is currently working on,
     // so that when Station.update() reports "done", we know which Ticket
     // to mark complete. Keyed by StationType since each station can only
@@ -73,6 +77,16 @@ public class ShiftScreen implements Screen {
         for (StationType type : StationType.values()) {
             stations.put(type, new Station(type));
         }
+
+        camera = new com.badlogic.gdx.graphics.OrthographicCamera();
+        camera.setToOrtho(false, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
+
+        player = new com.kitchenkaos.game.world.Player(
+                com.kitchenkaos.game.world.RestaurantWorld.WIDTH / 2f,
+                com.kitchenkaos.game.world.RestaurantWorld.HEIGHT / 2f
+        );
+
+        shapeRenderer = new com.badlogic.gdx.graphics.glutils.ShapeRenderer();
     }
 
     @Override
@@ -83,6 +97,9 @@ public class ShiftScreen implements Screen {
 
     private void update(float delta) {
         clock.update(delta);
+
+        player.update(delta);
+        updateCamera();
 
         // 1. Spawn new tickets, queue their dishes for assignment.
         Ticket newTicket = ticketSpawner.update(delta, clock.getHoursSinceStart(), clock.getPhase());
@@ -132,6 +149,23 @@ public class ShiftScreen implements Screen {
         activeTickets.removeIf(Ticket::isFulfilled);
     }
 
+    private void updateCamera() {
+        float halfWidth = camera.viewportWidth / 2f;
+        float halfHeight = camera.viewportHeight / 2f;
+
+        // Follow the player...
+        float camX = player.getPosition().x;
+        float camY = player.getPosition().y;
+
+        // ...but clamp so the camera never shows past the world's edges.
+        camX = com.badlogic.gdx.math.MathUtils.clamp(
+                camX, halfWidth, com.kitchenkaos.game.world.RestaurantWorld.WIDTH - halfWidth);
+        camY = com.badlogic.gdx.math.MathUtils.clamp(
+                camY, halfHeight, com.kitchenkaos.game.world.RestaurantWorld.HEIGHT - halfHeight);
+
+        camera.position.set(camX, camY, 0);
+        camera.update();
+    }
     private void assignWaitingDishesToFreeStations() {
         for (Ticket ticket : activeTickets) {
             Dish[] dishes = ticket.getDishes();
@@ -171,8 +205,15 @@ public class ShiftScreen implements Screen {
     }
 
     private void draw() {
+        batch.setProjectionMatrix(camera.combined);
+        shapeRenderer.setProjectionMatrix(camera.combined);
         Gdx.gl.glClearColor(0.12f, 0.12f, 0.12f, 1f);
         Gdx.gl.glClear(com.badlogic.gdx.graphics.GL20.GL_COLOR_BUFFER_BIT);
+
+        shapeRenderer.begin(com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(1f, 0.6f, 0.2f, 1f); // orange square = player, placeholder
+        shapeRenderer.rect(player.getPosition().x - 16, player.getPosition().y - 16, 32, 32);
+        shapeRenderer.end();
 
         batch.begin();
         int y = 700;
@@ -212,5 +253,6 @@ public class ShiftScreen implements Screen {
     public void dispose() {
         batch.dispose();
         font.dispose();
+        shapeRenderer.dispose();
     }
 }
