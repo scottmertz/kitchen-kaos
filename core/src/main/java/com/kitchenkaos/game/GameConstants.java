@@ -34,4 +34,7 @@ public final class GameConstants {
     public static final float FLOW_RISK_THRESHOLD = 30f;
     // At/above this threshold, you get a speed/accuracy bonus ("in the zone").
     public static final float FLOW_BONUS_THRESHOLD = 75f;
+    // --- Player interaction ---
+    public static final float INTERACTION_RANGE = 70f;      // pixels
+    public static final float FACING_DOT_THRESHOLD = 0.5f;  // ~60-degree facing cone
 }

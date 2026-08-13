@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import com.badlogic.gdx.math.Vector2;
+import com.kitchenkaos.game.GameConstants;
 
 /**
  * Orchestrates one shift: owns the clock, flow meter, stations, ticket
@@ -43,6 +45,8 @@ public class ShiftScreen implements Screen {
     private com.badlogic.gdx.graphics.OrthographicCamera camera;
     private com.kitchenkaos.game.world.Player player;
     private com.badlogic.gdx.graphics.glutils.ShapeRenderer shapeRenderer;
+    private final java.util.List<com.kitchenkaos.game.world.WorldStation> worldStations = new ArrayList<>();
+    private final java.util.List<com.badlogic.gdx.math.Rectangle> solidBounds = new ArrayList<>();
 
     private final com.kitchenkaos.game.sim.ShiftStateMachine shiftState = new com.kitchenkaos.game.sim.ShiftStateMachine();
 
@@ -76,8 +80,21 @@ public class ShiftScreen implements Screen {
         batch = new SpriteBatch();
         font = new BitmapFont(); // libGDX's built-in default font — placeholder, fine for now
 
+        float x = 150f;
+        float y = 400f;
+        float stationSize = 96f;
+        float spacing = 160f;
+
         for (StationType type : StationType.values()) {
-            stations.put(type, new Station(type));
+            Station station = new Station(type);
+            stations.put(type, station);
+
+            com.kitchenkaos.game.world.WorldStation worldStation =
+                    new com.kitchenkaos.game.world.WorldStation(station, x, y, stationSize, stationSize);
+            worldStations.add(worldStation);
+            solidBounds.add(worldStation.getBounds());
+
+            x += spacing;
         }
 
         camera = new com.badlogic.gdx.graphics.OrthographicCamera();
@@ -85,7 +102,7 @@ public class ShiftScreen implements Screen {
 
         player = new com.kitchenkaos.game.world.Player(
                 com.kitchenkaos.game.world.RestaurantWorld.WIDTH / 2f,
-                com.kitchenkaos.game.world.RestaurantWorld.HEIGHT / 2f
+                200f // clear of the station row (which sits at y=400+), so player doesn't spawn overlapping
         );
 
         shapeRenderer = new com.badlogic.gdx.graphics.glutils.ShapeRenderer();
@@ -113,7 +130,14 @@ public class ShiftScreen implements Screen {
             shiftState.update(clock.getPhase());
         }
 
-        player.update(delta);
+        if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.SPACE)) {
+            com.kitchenkaos.game.world.WorldStation target = findInteractableInRange();
+            if (target != null) {
+                target.interact();
+            }
+        }
+
+        player.update(delta, solidBounds);
         updateCamera();
 
         // 1. Spawn new tickets, queue their dishes for assignment.
@@ -164,6 +188,34 @@ public class ShiftScreen implements Screen {
 
         // 5. Remove fulfilled tickets from the active list.
         activeTickets.removeIf(Ticket::isFulfilled);
+    }
+
+    /**
+     * Returns the nearest WorldStation the player is both within range of
+     * AND facing (using a dot-product cone, not pixel-perfect aim — makes
+     * interaction feel forgiving rather than finicky). Returns null if
+     * nothing qualifies.
+     */
+    private com.kitchenkaos.game.world.WorldStation findInteractableInRange() {
+        Vector2 facingVec = new Vector2(player.getFacing().dx, player.getFacing().dy);
+
+        for (com.kitchenkaos.game.world.WorldStation ws : worldStations) {
+            com.badlogic.gdx.math.Rectangle b = ws.getBounds();
+            Vector2 center = new Vector2(b.x + b.width / 2f, b.y + b.height / 2f);
+
+            Vector2 toTarget = center.cpy().sub(player.getPosition());
+            float distance = toTarget.len();
+            if (distance > GameConstants.INTERACTION_RANGE) {
+                continue;
+            }
+
+            toTarget.nor();
+            float dot = toTarget.dot(facingVec);
+            if (dot >= GameConstants.FACING_DOT_THRESHOLD) {
+                return ws;
+            }
+        }
+        return null;
     }
 
     private void updateCamera() {
@@ -228,8 +280,16 @@ public class ShiftScreen implements Screen {
         Gdx.gl.glClear(com.badlogic.gdx.graphics.GL20.GL_COLOR_BUFFER_BIT);
 
         shapeRenderer.begin(com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(1f, 0.6f, 0.2f, 1f); // orange square = player, placeholder
+
+        shapeRenderer.setColor(0.3f, 0.5f, 0.8f, 1f); // blue = stations
+        for (com.kitchenkaos.game.world.WorldStation ws : worldStations) {
+            com.badlogic.gdx.math.Rectangle b = ws.getBounds();
+            shapeRenderer.rect(b.x, b.y, b.width, b.height);
+        }
+
+        shapeRenderer.setColor(1f, 0.6f, 0.2f, 1f); // orange = player
         shapeRenderer.rect(player.getPosition().x - 16, player.getPosition().y - 16, 32, 32);
+
         shapeRenderer.end();
 
         batch.begin();
@@ -245,6 +305,11 @@ public class ShiftScreen implements Screen {
         y -= 25;
         font.draw(batch, "Problems logged: " + problemLog.size(), 20, y);
         y -= 35;
+        com.kitchenkaos.game.world.WorldStation nearby = findInteractableInRange();
+        if (nearby != null) {
+            font.draw(batch, "Press SPACE to interact: " + nearby.getLabel(), 20, y);
+            y -= 25;
+        }
 
         for (StationType type : StationType.values()) {
             Station station = stations.get(type);
