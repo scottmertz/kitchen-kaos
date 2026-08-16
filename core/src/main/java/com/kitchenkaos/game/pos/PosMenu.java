@@ -18,10 +18,20 @@ public class PosMenu {
         this.items = items;
     }
 
-    /** Replaces the item list — used by menus whose contents change each time they're opened (e.g. a station's waiting-ticket list). */
+    /**
+     * Replaces the item list. Preserves the current selectedIndex where
+     * possible (so a live-refreshing menu, e.g. a station open every
+     * frame, doesn't snap the cursor back to the top) — only resets if
+     * the new list is empty, or clamps if it's shorter than before.
+     */
     public void setItems(List<PosMenuItem> items) {
         this.items = items;
-        selectedIndex = 0;
+        if (items.isEmpty()) {
+            selectedIndex = 0;
+        } else if (selectedIndex >= items.size()) {
+            selectedIndex = items.size() - 1;
+        }
+        // else: leave selectedIndex where it was
     }
 
     public void open() {

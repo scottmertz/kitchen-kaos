@@ -52,6 +52,9 @@ public class ShiftScreen implements Screen {
     private final java.util.List<com.badlogic.gdx.math.Rectangle> solidBounds = new ArrayList<>();
     private com.kitchenkaos.game.world.WorldStation openStationMenu = null;
 
+    private com.kitchenkaos.game.world.WorldExpo expo;
+    private com.kitchenkaos.game.world.WorldExpo openExpoMenu = null;
+
     private String toastMessage = null;
     private float toastTimer = 0f;
     private static final float TOAST_DURATION_SECONDS = 2.5f;
@@ -129,13 +132,18 @@ public class ShiftScreen implements Screen {
             Station station = new Station(type);
             stations.put(type, station);
 
-            com.kitchenkaos.game.world.WorldStation worldStation =
-                    new com.kitchenkaos.game.world.WorldStation(station, x, y, stationSize, stationSize);
-            worldStations.add(worldStation);
-            solidBounds.add(worldStation.getBounds());
-
-            x += spacing;
+            if (type != StationType.EXPO) {
+                com.kitchenkaos.game.world.WorldStation worldStation =
+                        new com.kitchenkaos.game.world.WorldStation(station, x, y, stationSize, stationSize);
+                worldStations.add(worldStation);
+                solidBounds.add(worldStation.getBounds());
+                x += spacing;
+            }
         }
+
+        expo = new com.kitchenkaos.game.world.WorldExpo(x, 400f, stationSize, stationSize);
+        interactables.add(expo);
+        solidBounds.add(expo.getBounds());
 
         interactables.addAll(worldStations);
 
@@ -186,7 +194,16 @@ public class ShiftScreen implements Screen {
         } else if (openStationMenu != null) {
             handleGenericMenuInput(openStationMenu.getMenu());
             if (!openStationMenu.getMenu().isOpen()) {
-                openStationMenu = null; // menu closed itself (Exit was selected)
+                openStationMenu = null;
+            } else {
+                openStationMenu.refreshMenu(activeTickets, flow); // keep list/progress live while open
+            }
+        } else if (openExpoMenu != null) {
+            handleGenericMenuInput(openExpoMenu.getMenu());
+            if (!openExpoMenu.getMenu().isOpen()) {
+                openExpoMenu = null;
+            } else {
+                openExpoMenu.refreshMenu(activeTickets); // keep list live while open
             }
         } else {
             if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.SPACE)) {
@@ -195,6 +212,10 @@ public class ShiftScreen implements Screen {
                     ws.refreshMenu(activeTickets, flow);
                     ws.getMenu().open();
                     openStationMenu = ws;
+                } else if (target instanceof com.kitchenkaos.game.world.WorldExpo we) {
+                    we.refreshMenu(activeTickets);
+                    we.getMenu().open();
+                    openExpoMenu = we;
                 } else if (target != null) {
                     target.interact();
                 }
@@ -219,8 +240,8 @@ public class ShiftScreen implements Screen {
 
         // 3. Advance every busy station; handle completions.
         for (Station station : stations.values()) {
-            boolean justFinished = station.update(delta);
-            if (justFinished) {
+            int finishedCount = station.update(delta);
+            for (int i = 0; i < finishedCount; i++) {
                 onStationFinished(station);
             }
         }
@@ -260,7 +281,7 @@ public class ShiftScreen implements Screen {
         // ingredient ran out — that system doesn't exist yet either.
 
         // 5. Remove fulfilled tickets from the active list.
-        activeTickets.removeIf(Ticket::isFulfilled);
+        activeTickets.removeIf(Ticket::isSubmitted);
     }
 
     /**
@@ -342,6 +363,10 @@ public class ShiftScreen implements Screen {
         com.badlogic.gdx.math.Rectangle posBounds = pos.getBounds();
         shapeRenderer.rect(posBounds.x, posBounds.y, posBounds.width, posBounds.height);
 
+        shapeRenderer.setColor(0.3f, 0.8f, 0.4f, 1f); // green = Expo
+        com.badlogic.gdx.math.Rectangle expoBounds = expo.getBounds();
+        shapeRenderer.rect(expoBounds.x, expoBounds.y, expoBounds.width, expoBounds.height);
+
         shapeRenderer.end();
 
         batch.setProjectionMatrix(uiCamera.combined);
@@ -362,7 +387,7 @@ public class ShiftScreen implements Screen {
         y -= 25;
         font.draw(batch, "Problems logged: " + problemLog.size(), 20, y);
         y -= 35;
-        if (!pos.getMenu().isOpen() && openStationMenu == null) {
+        if (!pos.getMenu().isOpen() && openStationMenu == null && openExpoMenu == null) {
             com.kitchenkaos.game.world.Interactable nearby = findInteractableInRange();
             if (nearby != null) {
                 font.draw(batch, "Press SPACE to interact: " + nearby.getLabel(), 20, y);
@@ -375,6 +400,8 @@ public class ShiftScreen implements Screen {
             activeMenu = pos.getMenu();
         } else if (openStationMenu != null) {
             activeMenu = openStationMenu.getMenu();
+        } else if (openExpoMenu != null) {
+            activeMenu = openExpoMenu.getMenu();
         }
         if (activeMenu != null) {
             java.util.List<com.badlogic.gdx.math.Rectangle> itemBounds = computePosMenuItemBounds(activeMenu);
@@ -390,9 +417,7 @@ public class ShiftScreen implements Screen {
 
         for (StationType type : StationType.values()) {
             Station station = stations.get(type);
-            String status = station.isBusy()
-                    ? String.format("%s: busy (%.0f%%)", type, station.getProgress() * 100f)
-                    : type + ": idle";
+            String status = type + ": " + station.getBusySlotCount() + "/" + station.getSlotCount() + " busy";
             font.draw(batch, status, 20, y);
             y -= 20;
         }

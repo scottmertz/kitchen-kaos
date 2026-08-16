@@ -11,12 +11,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The world-space representation of a Station. Unlike WorldPOS's fixed
- * menu, this station's menu contents are rebuilt EVERY time it's opened
- * (see refreshMenu()) since which tickets are waiting on this station
- * changes shift to shift. Ingredient selection is stubbed for now — no
- * real inventory system exists yet (flagged separately); each menu
- * entry is just the dish name, selecting it starts the cook directly.
+ * World-space wrapper around a cooking Station. Menu shows one
+ * disabled status line per slot (busy %/idle), followed by any
+ * cookable dishes IF at least one slot is free. Ingredient selection
+ * still stubbed (flagged separately) — selecting an item cooks it
+ * directly.
  */
 public class WorldStation implements Interactable {
 
@@ -49,27 +48,22 @@ public class WorldStation implements Interactable {
 
     @Override
     public void interact() {
-        // No-op — actual menu population needs the active ticket list,
-        // which lives in ShiftScreen. ShiftScreen calls refreshMenu()
-        // itself right before opening this station's menu instead of
-        // going through interact(), so this method intentionally does
-        // nothing on its own.
+        // No-op — see refreshMenu(). ShiftScreen calls it directly
+        // before opening this menu, since it needs the active ticket list.
     }
 
-    /**
-     * Rebuilds this station's menu from whichever tickets currently have
-     * an uncooked dish routed here. Called by ShiftScreen right before
-     * opening the menu, since Station/WorldStation don't have access to
-     * the active ticket list themselves — that stays owned by ShiftScreen.
-     */
     public void refreshMenu(List<Ticket> activeTickets, FlowMeter flow) {
         List<PosMenuItem> items = new ArrayList<>();
 
-        if (station.isBusy()) {
-            items.add(new PosMenuItem(
-                    "Cooking in progress (" + (int) (station.getProgress() * 100f) + "%)",
-                    false, null));
-        } else {
+        for (int i = 0; i < station.getSlotCount(); i++) {
+            String label = station.isSlotBusy(i)
+                    ? String.format("Slot %d: busy (%.0f%%)", i + 1, station.getSlotProgress(i) * 100f)
+                    : "Slot " + (i + 1) + ": idle";
+            items.add(new PosMenuItem(label, false, null));
+        }
+
+        boolean anyCookable = false;
+        if (station.hasFreeSlot()) {
             for (Ticket ticket : activeTickets) {
                 for (int i = 0; i < ticket.getDishes().length; i++) {
                     if (ticket.isDishComplete(i)) {
@@ -78,7 +72,6 @@ public class WorldStation implements Interactable {
                     if (ticket.getDishes()[i].getPrimaryStation() != station.getType()) {
                         continue;
                     }
-                    // Capture as effectively-final locals for the lambda below.
                     Ticket capturedTicket = ticket;
                     int capturedIndex = i;
                     items.add(new PosMenuItem(
@@ -87,11 +80,15 @@ public class WorldStation implements Interactable {
                             () -> station.startTask(
                                     capturedTicket.getDishes()[capturedIndex].getBaseCookSeconds(), flow)
                     ));
+                    anyCookable = true;
                 }
             }
-            if (items.isEmpty()) {
-                items.add(new PosMenuItem("(No tickets waiting)", false, null));
-            }
+        }
+
+        if (!anyCookable) {
+            items.add(new PosMenuItem(
+                    station.hasFreeSlot() ? "(No tickets waiting)" : "(All slots busy)",
+                    false, null));
         }
 
         items.add(new PosMenuItem("Exit", true, menu::close));

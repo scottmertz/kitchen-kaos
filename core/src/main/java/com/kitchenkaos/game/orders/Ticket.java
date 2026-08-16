@@ -21,6 +21,17 @@ public class Ticket {
         this.dishCompleted = new boolean[dishes.length];
     }
 
+    private boolean submitted = false;
+
+    /** Called by WorldExpo when this ticket is physically sent. */
+    public void markSubmitted() {
+        submitted = true;
+    }
+
+    public boolean isSubmitted() {
+        return submitted;
+    }
+
     /** Marks one dish on this ticket done. Ticket auto-marks itself fulfilled once all are. */
     public void markDishComplete(int dishIndex) {
         dishCompleted[dishIndex] = true;
