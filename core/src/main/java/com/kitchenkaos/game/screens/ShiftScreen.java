@@ -59,6 +59,52 @@ public class ShiftScreen implements Screen {
     private float toastTimer = 0f;
     private static final float TOAST_DURATION_SECONDS = 2.5f;
 
+    private final java.util.List<com.kitchenkaos.game.staff.NpcCook> roster =
+            com.kitchenkaos.game.staff.RosterFactory.createPlaceholderRoster();
+
+    /**
+     * Drives every on-shift NPC's assigned stations: auto-clean if dirty,
+     * then auto-start the next waiting dish if a slot's free. Mistake
+     * chance is rolled at COMPLETION time in onStationFinished(), not here
+     * — this method only ever STARTS tasks.
+     */
+    private void runNpcAutomation() {
+        for (com.kitchenkaos.game.staff.NpcCook cook : roster) {
+            for (StationType type : cook.getAssignedStations()) {
+                Station station = stations.get(type);
+
+                if (station.needsCleaning()) {
+                    station.autoClean();
+                    continue; // don't also try to start a task the same frame we just cleaned
+                }
+
+                if (!station.hasFreeSlot()) {
+                    continue;
+                }
+
+                for (Ticket ticket : activeTickets) {
+                    Dish[] dishes = ticket.getDishes();
+                    boolean started = false;
+                    for (int i = 0; i < dishes.length; i++) {
+                        if (ticket.isDishComplete(i)) {
+                            continue;
+                        }
+                        if (dishes[i].getPrimaryStation() != type) {
+                            continue;
+                        }
+                        if (station.startTask(dishes[i].getBaseCookSeconds(), cook.getSpeedMultiplier(type))) {
+                            started = true;
+                        }
+                        break; // one dish attempt per ticket per station per frame is enough
+                    }
+                    if (started) {
+                        break; // this station's now busy (or was already) — move to the next station
+                    }
+                }
+            }
+        }
+    }
+
     private void showToast(String message) {
         toastMessage = message;
         toastTimer = TOAST_DURATION_SECONDS;
@@ -239,6 +285,10 @@ public class ShiftScreen implements Screen {
         }
 
         // 3. Advance every busy station; handle completions.
+        if (shiftState.isClockedIn()) {
+            runNpcAutomation();
+        }
+
         for (Station station : stations.values()) {
             int finishedCount = station.update(delta);
             for (int i = 0; i < finishedCount; i++) {
@@ -335,9 +385,36 @@ public class ShiftScreen implements Screen {
             var dishes = ticket.getDishes();
             for (int i = 0; i < dishes.length; i++) {
                 if (!ticket.isDishComplete(i) && dishes[i].getPrimaryStation() == station.getType()) {
+                    rollForMistake(station, dishes[i].getName());
                     ticket.markDishComplete(i);
                     return; // only one dish could have JUST finished at this station
                 }
+            }
+        }
+    }
+
+    /**
+     * APPROXIMATION: attributes mistake risk to whichever NPC is assigned
+     * to this station type, even for slots the PLAYER personally worked.
+     * Real per-slot "who's actually cooking this" attribution would need
+     * Station to track an owner per slot — worth revisiting later, but
+     * out of scope for 8a. If no NPC is assigned here, no mistake roll
+     * happens at all (player-only stations stay mistake-free for now).
+     */
+    private void rollForMistake(Station station, String dishName) {
+        for (com.kitchenkaos.game.staff.NpcCook cook : roster) {
+            if (cook.getAssignedStations().contains(station.getType())) {
+                if (com.badlogic.gdx.math.MathUtils.random() < cook.getMistakeChance(station.getType())) {
+                    flow.onMistake();
+                    if (station.getType().hasHeatRisk) {
+                        problemLog.add(new com.kitchenkaos.game.problems.ProblemEvent(
+                                com.kitchenkaos.game.problems.ProblemType.BURNED_FOOD,
+                                clock.getHoursSinceStart(),
+                                dishName + " — " + station.getType() + " (" + cook.getName() + ")"
+                        ));
+                    }
+                }
+                return; // only one assigned NPC per station type in this roster, stop after checking them
             }
         }
     }
@@ -387,6 +464,12 @@ public class ShiftScreen implements Screen {
         y -= 25;
         font.draw(batch, "Problems logged: " + problemLog.size(), 20, y);
         y -= 35;
+        font.draw(batch, "--- Staff ---", 20, y);
+        y -= 20;
+        for (com.kitchenkaos.game.staff.NpcCook cook : roster) {
+            font.draw(batch, cook.getName() + ": " + cook.getAssignedStations(), 20, y);
+            y -= 20;
+        }
         if (!pos.getMenu().isOpen() && openStationMenu == null && openExpoMenu == null) {
             com.kitchenkaos.game.world.Interactable nearby = findInteractableInRange();
             if (nearby != null) {

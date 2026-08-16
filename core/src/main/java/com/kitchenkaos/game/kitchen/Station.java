@@ -40,6 +40,11 @@ public class Station {
 
     /** Starts a task in the first free slot. Returns false if every slot is currently busy. */
     public boolean startTask(float baseDurationSeconds, FlowMeter flow) {
+        return startTask(baseDurationSeconds, flow.getSpeedMultiplier());
+    }
+
+    /** Used by NPC-driven tasks, which apply the NPC's own skill-based speed instead of Flow's. */
+    public boolean startTask(float baseDurationSeconds, float speedMultiplier) {
         if (needsCleaning()) {
             return false;
         }
@@ -47,7 +52,7 @@ public class Station {
             if (!slot.busy) {
                 slot.busy = true;
                 slot.taskElapsedSeconds = 0f;
-                slot.taskDurationSeconds = baseDurationSeconds / flow.getSpeedMultiplier();
+                slot.taskDurationSeconds = baseDurationSeconds / speedMultiplier;
                 return true;
             }
         }
@@ -97,6 +102,13 @@ public class Station {
         if (!cleaning && needsCleaning()) {
             cleaning = true;
             cleanElapsedSeconds = 0f;
+        }
+    }
+
+    /** NPC auto-clean — instant, unlike the player's 1-second startCleaning() action. */
+    public void autoClean() {
+        if (needsCleaning()) {
+            completionsSinceClean = 0;
         }
     }
 
