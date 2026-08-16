@@ -22,6 +22,12 @@ public class Station {
         float taskElapsedSeconds = 0f;
     }
 
+    private static final float CLEAN_DURATION_SECONDS = 1f;
+
+    private int completionsSinceClean = 0;
+    private boolean cleaning = false;
+    private float cleanElapsedSeconds = 0f;
+
     public Station(StationType type) {
         this.type = type;
         // EXPO's baseCapacity is 0 (it's not a cooking station at all) —
@@ -34,6 +40,9 @@ public class Station {
 
     /** Starts a task in the first free slot. Returns false if every slot is currently busy. */
     public boolean startTask(float baseDurationSeconds, FlowMeter flow) {
+        if (needsCleaning()) {
+            return false;
+        }
         for (CookSlot slot : slots) {
             if (!slot.busy) {
                 slot.busy = true;
@@ -60,9 +69,39 @@ public class Station {
             if (slot.taskElapsedSeconds >= slot.taskDurationSeconds) {
                 slot.busy = false;
                 finishedCount++;
+                completionsSinceClean++;
             }
         }
+
+        if (cleaning) {
+            cleanElapsedSeconds += deltaSeconds;
+            if (cleanElapsedSeconds >= CLEAN_DURATION_SECONDS) {
+                cleaning = false;
+                completionsSinceClean = 0;
+            }
+        }
+
         return finishedCount;
+    }
+
+    public boolean needsCleaning() {
+        return type.cleanThreshold > 0 && completionsSinceClean >= type.cleanThreshold;
+    }
+
+    public boolean isCleaning() {
+        return cleaning;
+    }
+
+    /** Begins the 1-second clean action. No-op if already cleaning or not actually dirty. */
+    public void startCleaning() {
+        if (!cleaning && needsCleaning()) {
+            cleaning = true;
+            cleanElapsedSeconds = 0f;
+        }
+    }
+
+    public int getCompletionsSinceClean() {
+        return completionsSinceClean;
     }
 
     public boolean hasFreeSlot() {

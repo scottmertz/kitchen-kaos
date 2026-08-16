@@ -62,33 +62,42 @@ public class WorldStation implements Interactable {
             items.add(new PosMenuItem(label, false, null));
         }
 
-        boolean anyCookable = false;
-        if (station.hasFreeSlot()) {
-            for (Ticket ticket : activeTickets) {
-                for (int i = 0; i < ticket.getDishes().length; i++) {
-                    if (ticket.isDishComplete(i)) {
-                        continue;
+        if (station.isCleaning()) {
+            items.add(new PosMenuItem("Cleaning...", false, null));
+        } else if (station.needsCleaning()) {
+            items.add(new PosMenuItem(
+                    "Station needs cleaning (" + station.getCompletionsSinceClean() + "/"
+                            + station.getType().cleanThreshold + ")",
+                    false, null));
+            items.add(new PosMenuItem("Clean Station", true, station::startCleaning));
+        } else {
+            boolean anyCookable = false;
+            if (station.hasFreeSlot()) {
+                for (Ticket ticket : activeTickets) {
+                    for (int i = 0; i < ticket.getDishes().length; i++) {
+                        if (ticket.isDishComplete(i)) {
+                            continue;
+                        }
+                        if (ticket.getDishes()[i].getPrimaryStation() != station.getType()) {
+                            continue;
+                        }
+                        Ticket capturedTicket = ticket;
+                        int capturedIndex = i;
+                        items.add(new PosMenuItem(
+                                "Cook: " + ticket.getDishes()[i].getName(),
+                                true,
+                                () -> station.startTask(
+                                        capturedTicket.getDishes()[capturedIndex].getBaseCookSeconds(), flow)
+                        ));
+                        anyCookable = true;
                     }
-                    if (ticket.getDishes()[i].getPrimaryStation() != station.getType()) {
-                        continue;
-                    }
-                    Ticket capturedTicket = ticket;
-                    int capturedIndex = i;
-                    items.add(new PosMenuItem(
-                            "Cook: " + ticket.getDishes()[i].getName(),
-                            true,
-                            () -> station.startTask(
-                                    capturedTicket.getDishes()[capturedIndex].getBaseCookSeconds(), flow)
-                    ));
-                    anyCookable = true;
                 }
             }
-        }
-
-        if (!anyCookable) {
-            items.add(new PosMenuItem(
-                    station.hasFreeSlot() ? "(No tickets waiting)" : "(All slots busy)",
-                    false, null));
+            if (!anyCookable) {
+                items.add(new PosMenuItem(
+                        station.hasFreeSlot() ? "(No tickets waiting)" : "(All slots busy)",
+                        false, null));
+            }
         }
 
         items.add(new PosMenuItem("Exit", true, menu::close));
