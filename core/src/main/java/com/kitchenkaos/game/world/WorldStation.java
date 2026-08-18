@@ -9,23 +9,31 @@ import com.kitchenkaos.game.sim.FlowMeter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
- * World-space wrapper around a cooking Station. Menu shows one
- * disabled status line per slot (busy %/idle), followed by any
- * cookable dishes IF at least one slot is free. Ingredient selection
- * still stubbed (flagged separately) — selecting an item cooks it
- * directly.
+ * World-space wrapper around a cooking Station. Menu shows one status
+ * line per slot (busy %/ready-awaiting-collection/idle), followed by
+ * any cookable dishes IF at least one slot is free. Ingredient
+ * selection still stubbed (flagged separately) — selecting an item
+ * cooks it directly.
+ *
+ * onSlotEvent is how a player Collect action reaches ShiftScreen —
+ * WorldStation has no access to problemLog/roster/mistake-rolling
+ * itself, so it just reports the raw event upward.
  */
 public class WorldStation implements Interactable {
 
     private final Station station;
     private final Rectangle bounds;
     private final PosMenu menu = new PosMenu(new ArrayList<>());
+    private final Consumer<Station.SlotEvent> onSlotEvent;
 
-    public WorldStation(Station station, float x, float y, float width, float height) {
+    public WorldStation(Station station, float x, float y, float width, float height,
+                        Consumer<Station.SlotEvent> onSlotEvent) {
         this.station = station;
         this.bounds = new Rectangle(x, y, width, height);
+        this.onSlotEvent = onSlotEvent;
     }
 
     public Station getStation() {
@@ -56,10 +64,23 @@ public class WorldStation implements Interactable {
         List<PosMenuItem> items = new ArrayList<>();
 
         for (int i = 0; i < station.getSlotCount(); i++) {
-            String label = station.isSlotBusy(i)
-                    ? String.format("Slot %d: busy (%.0f%%)", i + 1, station.getSlotProgress(i) * 100f)
-                    : "Slot " + (i + 1) + ": idle";
-            items.add(new PosMenuItem(label, false, null));
+            if (station.isSlotReady(i)) {
+                int slotIndex = i;
+                items.add(new PosMenuItem(
+                        "Slot " + (i + 1) + ": READY — " + station.getSlotDishName(i) + " (collect before it burns!)",
+                        true,
+                        () -> {
+                            Station.SlotEvent event = station.collect(slotIndex);
+                            if (event != null) {
+                                onSlotEvent.accept(event);
+                            }
+                        }));
+            } else {
+                String label = station.isSlotBusy(i)
+                        ? String.format("Slot %d: busy (%.0f%%)", i + 1, station.getSlotProgress(i) * 100f)
+                        : "Slot " + (i + 1) + ": idle";
+                items.add(new PosMenuItem(label, false, null));
+            }
         }
 
         if (station.isCleaning()) {
@@ -87,6 +108,7 @@ public class WorldStation implements Interactable {
                                 "Cook: " + ticket.getDishes()[i].getName(),
                                 true,
                                 () -> station.startTask(
+                                        capturedTicket, capturedIndex,
                                         capturedTicket.getDishes()[capturedIndex].getBaseCookSeconds(), flow)
                         ));
                         anyCookable = true;

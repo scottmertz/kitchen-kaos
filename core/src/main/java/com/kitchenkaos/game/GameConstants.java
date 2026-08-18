@@ -36,5 +36,12 @@ public final class GameConstants {
     public static final float FLOW_BONUS_THRESHOLD = 75f;
     // --- Player interaction ---
     public static final float INTERACTION_RANGE = 70f;      // pixels
-    public static final float FACING_DOT_THRESHOLD = 0.5f;  // ~60-degree facing cone
+    public static final float FACING_DOT_THRESHOLD = 0.5f; // ~60-degree facing cone
+
+    // --- Station hold/burn risk (heat-risk stations only, e.g. Grill/Sauté/Fryer) ---
+    // How long a player-cooked dish can sit "ready" at a heat-risk station
+    // before it burns and has to be remade from scratch. NPC-cooked dishes
+    // never sit — NPCs auto-collect the instant their task finishes, since
+    // that's already abstracted by the automation system.
+    public static final float BURN_GRACE_SECONDS = 20f;
 }

@@ -24,13 +24,9 @@ import com.kitchenkaos.game.GameConstants;
 /**
  * Orchestrates one shift: owns the clock, flow meter, stations, ticket
  * spawner, and problem log, and wires them together each frame.
- *
- * IMPORTANT — current limitation: there's no player input system yet,
- * so ticket->station assignment and completion below is fully automatic
- * ("autopilot"), just to prove the loop end-to-end. Real player-driven
- * interaction (click a station, pull food off in time, etc.) replaces
- * the autopilot logic in a later step — search "TODO(player-input)"
- * below for exactly where that hook goes.
+ * Cooking is player- and NPC-driven (see runNpcAutomation() for the
+ * NPC side); Station reports real per-slot events (finished/burned)
+ * each frame via update(), which this class reacts to below.
  */
 public class ShiftScreen implements Screen {
 
@@ -92,7 +88,7 @@ public class ShiftScreen implements Screen {
                         if (dishes[i].getPrimaryStation() != type) {
                             continue;
                         }
-                        if (station.startTask(dishes[i].getBaseCookSeconds(), cook.getSpeedMultiplier(type))) {
+                        if (station.startTask(ticket, i, dishes[i].getBaseCookSeconds(), cook.getSpeedMultiplier(type))) {
                             started = true;
                         }
                         break; // one dish attempt per ticket per station per frame is enough
@@ -180,7 +176,8 @@ public class ShiftScreen implements Screen {
 
             if (type != StationType.EXPO) {
                 com.kitchenkaos.game.world.WorldStation worldStation =
-                        new com.kitchenkaos.game.world.WorldStation(station, x, y, stationSize, stationSize);
+                        new com.kitchenkaos.game.world.WorldStation(
+                                station, x, y, stationSize, stationSize, this::handleSlotEvent);
                 worldStations.add(worldStation);
                 solidBounds.add(worldStation.getBounds());
                 x += spacing;
@@ -290,9 +287,8 @@ public class ShiftScreen implements Screen {
         }
 
         for (Station station : stations.values()) {
-            int finishedCount = station.update(delta);
-            for (int i = 0; i < finishedCount; i++) {
-                onStationFinished(station);
+            for (Station.SlotEvent event : station.update(delta)) {
+                handleSlotEvent(event);
             }
         }
 
@@ -318,17 +314,6 @@ public class ShiftScreen implements Screen {
                 toastMessage = null;
             }
         }
-
-        // TODO(player-input): BURNED_FOOD should fire here when a station
-        // finishes a task but the PLAYER fails to collect/pull it within
-        // some grace window — not automatically, like everything above.
-        // Needs: a "ready but uncollected" state on Station, plus an
-        // actual input system to let the player collect it. Neither
-        // exists yet.
-
-        // TODO(player-input / vendor system): EIGHTY_SIXED_INGREDIENT
-        // should fire from a vendor/inventory system deciding an
-        // ingredient ran out — that system doesn't exist yet either.
 
         // 5. Remove fulfilled tickets from the active list.
         activeTickets.removeIf(Ticket::isSubmitted);
@@ -380,16 +365,21 @@ public class ShiftScreen implements Screen {
         camera.update();
     }
 
-    private void onStationFinished(Station station) {
-        for (Ticket ticket : activeTickets) {
-            var dishes = ticket.getDishes();
-            for (int i = 0; i < dishes.length; i++) {
-                if (!ticket.isDishComplete(i) && dishes[i].getPrimaryStation() == station.getType()) {
-                    rollForMistake(station, dishes[i].getName());
-                    ticket.markDishComplete(i);
-                    return; // only one dish could have JUST finished at this station
-                }
+    private void handleSlotEvent(Station.SlotEvent event) {
+        if (event.type == Station.SlotEvent.Type.FINISHED) {
+            if (!event.workedByPlayer) {
+                rollForMistake(event.ticket, event.dishIndex);
             }
+            event.ticket.markDishComplete(event.dishIndex);
+        } else { // BURNED
+            String dishName = event.ticket.getDishes()[event.dishIndex].getName();
+            problemLog.add(new ProblemEvent(
+                    ProblemType.BURNED_FOOD,
+                    clock.getHoursSinceStart(),
+                    dishName + " — left too long, burned"
+            ));
+            // Dish was never marked complete, so it's already back in the
+            // "needs cooking" pool automatically — no extra reset needed.
         }
     }
 
@@ -401,20 +391,22 @@ public class ShiftScreen implements Screen {
      * out of scope for 8a. If no NPC is assigned here, no mistake roll
      * happens at all (player-only stations stay mistake-free for now).
      */
-    private void rollForMistake(Station station, String dishName) {
+    private void rollForMistake(Ticket ticket, int dishIndex) {
+        StationType type = ticket.getDishes()[dishIndex].getPrimaryStation();
+        String dishName = ticket.getDishes()[dishIndex].getName();
         for (com.kitchenkaos.game.staff.NpcCook cook : roster) {
-            if (cook.getAssignedStations().contains(station.getType())) {
-                if (com.badlogic.gdx.math.MathUtils.random() < cook.getMistakeChance(station.getType())) {
+            if (cook.getAssignedStations().contains(type)) {
+                if (com.badlogic.gdx.math.MathUtils.random() < cook.getMistakeChance(type)) {
                     flow.onMistake();
-                    if (station.getType().hasHeatRisk) {
+                    if (type.hasHeatRisk) {
                         problemLog.add(new com.kitchenkaos.game.problems.ProblemEvent(
                                 com.kitchenkaos.game.problems.ProblemType.BURNED_FOOD,
                                 clock.getHoursSinceStart(),
-                                dishName + " — " + station.getType() + " (" + cook.getName() + ")"
+                                dishName + " — " + type + " (" + cook.getName() + ")"
                         ));
                     }
                 }
-                return; // only one assigned NPC per station type in this roster, stop after checking them
+                return;
             }
         }
     }

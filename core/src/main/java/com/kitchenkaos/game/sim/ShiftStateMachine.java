@@ -3,8 +3,7 @@ package com.kitchenkaos.game.sim;
 /**
  * Drives ShiftState transitions. Clock-in/clock-out are explicit player
  * actions (clockIn()/clockOut()) — the real trigger for these is the
- * POS, which is Step 4 and doesn't exist yet, so ShiftScreen will call
- * these from a temporary debug key for now. PREPPING -> OPEN -> CLOSING
+ * POS,so ShiftScreen will call PREPPING -> OPEN -> CLOSING
  * are automatic and time-based, matching the fixed shift schedule
  * (GDD §4) — the doors open on schedule whether or not prep is done,
  * same as a real restaurant.
